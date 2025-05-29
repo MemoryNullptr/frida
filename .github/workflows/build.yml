@@ -1,66 +1,63 @@
-name: Build Frida
+name: Build Frida Gadget (.so) for Android
 
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+on: [push]
 
 jobs:
-  build:
+  build-gadget:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [android-arm, android-arm64, android-x86, android-x86_64]
+
+    env:
+      FRIDA_PREFIX: ${{ runner.temp }}/frida-install
 
     steps:
-    # Checkout do repositório
-    - name: Checkout repository
-      uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
-    # Configurar Python (necessário para ferramentas de build do Frida)
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.x'
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y python3 python3-pip git build-essential
+          pip3 install meson ninja
 
-    # Configurar Node.js (necessário para algumas partes do build do Frida)
-    - name: Set up Node.js
-      uses: actions/setup-node@v3
-      with:
-        node-version: '16'
+      - name: Download Android NDK
+        run: |
+          mkdir -p $HOME/android-ndk
+          wget https://dl.google.com/android/repository/android-ndk-r25c-linux.zip
+          unzip android-ndk-r25c-linux.zip -d $HOME/android-ndk
+        env:
+          ANDROID_NDK_HOME: $HOME/android-ndk/android-ndk-r25c
 
-    # Instalar dependências do sistema (Ubuntu)
-    - name: Install system dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential git python3-dev python3-pip \
-          libglib2.0-dev libffi-dev libssl-dev curl
+      - name: Set up environment
+        run: |
+          echo "ANDROID_NDK_HOME=$HOME/android-ndk/android-ndk-r25c" >> $GITHUB_ENV
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-    # Instalar ferramentas Python necessárias
-    - name: Install Python dependencies
-      run: |
-        pip install --upgrade pip
-        pip install meson ninja
+      - name: Bootstrap Frida toolchain
+        run: |
+          python3 releng/deps.py install --devkit ${{ matrix.arch }}
 
-    # Clonar dependências adicionais (se necessário)
-    - name: Clone Frida submodules
-      run: |
-        git submodule update --init --recursive
+      - name: Configure Frida build
+        run: |
+          ./configure \
+            --prefix=$FRIDA_PREFIX \
+            --host=${{ matrix.arch }} \
+            --enable-gadget \
+            --disable-python \
+            --disable-node \
+            --disable-csharp \
+            --disable-qml
 
-    # Configurar e compilar Frida
-    - name: Build Frida
-      run: |
-        meson setup build
-        ninja -C build
-        ninja -C build install
+      - name: Build Frida Gadget
+        run: |
+          make -j$(nproc)
+          make install
 
-    # Opcional: Executar testes
-    - name: Run tests
-      run: |
-        cd build
-        meson test
-
-    # Opcional: Publicar artefatos
-    - name: Upload build artifacts
-      uses: actions/upload-artifact@v3
-      with:
-        name: frida-build
-        path: build/
+      - name: Upload frida-gadget.so
+        uses: actions/upload-artifact@v4
+        with:
+          name: frida-gadget-${{ matrix.arch }}.so
+          path: ${{ env.FRIDA_PREFIX }}/lib/frida/${{ matrix.arch }}/frida-gadget.so
