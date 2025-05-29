@@ -1,0 +1,66 @@
+name: Build Frida
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    # Checkout do repositório
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    # Configurar Python (necessário para ferramentas de build do Frida)
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+
+    # Configurar Node.js (necessário para algumas partes do build do Frida)
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '16'
+
+    # Instalar dependências do sistema (Ubuntu)
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential git python3-dev python3-pip \
+          libglib2.0-dev libffi-dev libssl-dev curl
+
+    # Instalar ferramentas Python necessárias
+    - name: Install Python dependencies
+      run: |
+        pip install --upgrade pip
+        pip install meson ninja
+
+    # Clonar dependências adicionais (se necessário)
+    - name: Clone Frida submodules
+      run: |
+        git submodule update --init --recursive
+
+    # Configurar e compilar Frida
+    - name: Build Frida
+      run: |
+        meson setup build
+        ninja -C build
+        ninja -C build install
+
+    # Opcional: Executar testes
+    - name: Run tests
+      run: |
+        cd build
+        meson test
+
+    # Opcional: Publicar artefatos
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: frida-build
+        path: build/
